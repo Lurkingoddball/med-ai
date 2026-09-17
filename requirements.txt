@@ -1,0 +1,13 @@
+streamlit>=1.35.0
+llama-index>=0.10.0
+llama-index-core
+llama-index-llms-groq
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+llama-index-readers-file
+chromadb>=0.4.22
+pymupdf>=1.23.0
+pandas>=2.0.0
+groq>=0.9.0
+sentence-transformers
+huggingface_hub

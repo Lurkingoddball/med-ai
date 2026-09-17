@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.tmp
+
+# Local database and books (stored on HF Dataset Lurkingoddball/medical-ai-data)
+chroma_db/
+books/
+analytics.db
+upload_data.py
