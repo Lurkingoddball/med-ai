@@ -236,14 +236,46 @@ except Exception:
 if not ADMIN_PASSCODE:
     ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "medai2026")
 
-GROQ_MODEL = "llama-3.1-8b-instant"
+@st.cache_data(ttl=3600)
+def get_best_available_groq_model(api_key: str) -> str:
+    """Queries Groq's live models endpoint with the API key and selects the best active chat model."""
+    try:
+        from groq import Groq as RawGroqClient
+        client = RawGroqClient(api_key=api_key)
+        all_models = [m.id for m in client.models.list().data if getattr(m, 'active', True)]
+        
+        preferred_order = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it"
+        ]
+        for candidate in preferred_order:
+            if candidate in all_models:
+                return candidate
+        
+        chat_models = [m for m in all_models if "whisper" not in m.lower() and "embed" not in m.lower()]
+        if chat_models:
+            return chat_models[0]
+    except Exception as e:
+        print(f"Notice: Groq auto-detect model: {e}", flush=True)
+    return "llama3-8b-8192"
+
+GROQ_MODEL = None
 try:
     if "GROQ_MODEL" in st.secrets:
         GROQ_MODEL = str(st.secrets["GROQ_MODEL"]).strip().strip('"').strip("'")
 except Exception:
     pass
+
 if not GROQ_MODEL:
-    GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+    GROQ_MODEL = os.environ.get("GROQ_MODEL", "")
+
+if not GROQ_MODEL:
+    GROQ_MODEL = get_best_available_groq_model(GROQ_API_KEY)
 
 # Initialize session state variables
 if "session_id" not in st.session_state:
