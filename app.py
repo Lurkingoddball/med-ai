@@ -236,6 +236,15 @@ except Exception:
 if not ADMIN_PASSCODE:
     ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "medai2026")
 
+GROQ_MODEL = "llama-3.1-8b-instant"
+try:
+    if "GROQ_MODEL" in st.secrets:
+        GROQ_MODEL = str(st.secrets["GROQ_MODEL"]).strip().strip('"').strip("'")
+except Exception:
+    pass
+if not GROQ_MODEL:
+    GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+
 # Initialize session state variables
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())[:8]
@@ -329,9 +338,9 @@ def initialize_system():
     Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
     Settings.node_parser = SentenceSplitter(chunk_size=1000, chunk_overlap=100)
     
-    # 120B LLM for comprehensive, high-depth medical reasoning & text generation
+    # LLM for comprehensive, high-depth medical reasoning & text generation
     Settings.llm = Groq(
-        model="llama-3.3-70b-versatile", 
+        model=GROQ_MODEL, 
         api_key=GROQ_API_KEY, 
         temperature=0.1
     )
@@ -490,7 +499,7 @@ with st.spinner("Initializing system and loading database..."):
 
 # Ensure LLM uses the fresh GROQ_API_KEY from secrets on every rerun
 Settings.llm = Groq(
-    model="llama-3.3-70b-versatile",
+    model=GROQ_MODEL,
     api_key=GROQ_API_KEY,
     temperature=0.1
 )
