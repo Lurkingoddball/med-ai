@@ -199,10 +199,22 @@ div:has(> button[key^="chip"]) button:hover {
 """, unsafe_allow_html=True)
 
 # 3. Environment & Settings Setup
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY = ""
+try:
+    if "GROQ_API_KEY" in st.secrets:
+        GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+except Exception:
+    pass
+
 if not GROQ_API_KEY:
-    st.error("⚠️ GROQ_API_KEY is not set. Please add it in Hugging Face Spaces → Settings → Repository Secrets.")
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+GROQ_API_KEY = str(GROQ_API_KEY).strip().strip('"').strip("'")
+
+if not GROQ_API_KEY:
+    st.error("⚠️ GROQ_API_KEY is not set. Please add it in your Streamlit Cloud App Settings → Secrets.")
     st.stop()
+
 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
 from llama_index.core import VectorStoreIndex, StorageContext, Settings
@@ -214,7 +226,15 @@ from llama_index.llms.groq import Groq
 
 BOOKS_DIR = os.environ.get("BOOKS_DIR", "./books")
 CHROMA_DIR = "./chroma_db"
-ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "medai2026")  # Private passcode for Creator Dashboard
+
+ADMIN_PASSCODE = "medai2026"
+try:
+    if "ADMIN_PASSCODE" in st.secrets:
+        ADMIN_PASSCODE = str(st.secrets["ADMIN_PASSCODE"]).strip().strip('"').strip("'")
+except Exception:
+    pass
+if not ADMIN_PASSCODE:
+    ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "medai2026")
 
 # Initialize session state variables
 if "session_id" not in st.session_state:
