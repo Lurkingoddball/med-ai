@@ -331,7 +331,7 @@ def initialize_system():
     
     # 120B LLM for comprehensive, high-depth medical reasoning & text generation
     Settings.llm = Groq(
-        model="openai/gpt-oss-120b", 
+        model="llama-3.3-70b-versatile", 
         api_key=GROQ_API_KEY, 
         temperature=0.1
     )
@@ -487,6 +487,13 @@ def display_sources_and_page_viewer(sources_list, message_idx: int):
 # Initialize system and database
 with st.spinner("Initializing system and loading database..."):
     index, loaded_books = initialize_system()
+
+# Ensure LLM uses the fresh GROQ_API_KEY from secrets on every rerun
+Settings.llm = Groq(
+    model="llama-3.3-70b-versatile",
+    api_key=GROQ_API_KEY,
+    temperature=0.1
+)
 
 # Map friendly titles to actual filenames
 book_options = {get_friendly_book_name(b): b for b in loaded_books}
