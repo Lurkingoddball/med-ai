@@ -238,11 +238,19 @@ if not ADMIN_PASSCODE:
 
 @st.cache_data(ttl=3600)
 def get_best_available_groq_model(api_key: str) -> str:
-    """Queries Groq's live models endpoint with the API key and selects the best active chat model."""
+    """Queries Groq's live models endpoint with the API key and selects the best active generative chat model."""
     try:
         from groq import Groq as RawGroqClient
         client = RawGroqClient(api_key=api_key)
         all_models = [m.id for m in client.models.list().data if getattr(m, 'active', True)]
+        print(f"Available Groq models: {all_models}", flush=True)
+
+        # Exclude guard, moderation, classification, speech, audio, vision-only, embedding models
+        non_chat_keywords = ["guard", "classif", "whisper", "embed", "safeguard", "moderation", "rerank"]
+        valid_chat_models = [
+            m for m in all_models
+            if not any(kw in m.lower() for kw in non_chat_keywords)
+        ]
         
         preferred_order = [
             "llama-3.3-70b-versatile",
@@ -250,19 +258,20 @@ def get_best_available_groq_model(api_key: str) -> str:
             "llama-3.1-8b-instant",
             "llama3-70b-8192",
             "llama3-8b-8192",
+            "llama-3.2-3b-preview",
+            "llama-3.2-1b-preview",
             "mixtral-8x7b-32768",
             "gemma2-9b-it"
         ]
         for candidate in preferred_order:
-            if candidate in all_models:
+            if candidate in valid_chat_models:
                 return candidate
         
-        chat_models = [m for m in all_models if "whisper" not in m.lower() and "embed" not in m.lower()]
-        if chat_models:
-            return chat_models[0]
+        if valid_chat_models:
+            return valid_chat_models[0]
     except Exception as e:
         print(f"Notice: Groq auto-detect model: {e}", flush=True)
-    return "llama3-8b-8192"
+    return "llama-3.1-8b-instant"
 
 GROQ_MODEL = None
 try:
