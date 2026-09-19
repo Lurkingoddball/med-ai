@@ -227,6 +227,15 @@ from llama_index.llms.groq import Groq
 BOOKS_DIR = os.environ.get("BOOKS_DIR", "./books")
 CHROMA_DIR = "./chroma_db"
 
+
+def safe_basename(filepath: str) -> str:
+    """Cross-platform basename that handles both Windows (\\) and Unix (/) path separators.
+    On Linux, os.path.basename('D:\\books\\file.pdf') returns 'D:\\books\\file.pdf' instead of 'file.pdf'.
+    This function normalizes the separators first."""
+    if not filepath:
+        return filepath
+    return filepath.replace('\\', '/').split('/')[-1]
+
 ADMIN_PASSCODE = "medai2026"
 try:
     if "ADMIN_PASSCODE" in st.secrets:
@@ -928,7 +937,7 @@ if user_query:
 
             for node in retrieved_nodes:
                 raw_file = node.metadata.get('file_path', node.metadata.get('file_name', ''))
-                book_filename = os.path.basename(raw_file)
+                book_filename = safe_basename(raw_file)
 
                 # Filter strictly to the books selected by the student
                 if book_filename not in selected_filenames:
@@ -959,7 +968,7 @@ if user_query:
             for node in unique_nodes:
                 meta = node.metadata
                 raw_file = meta.get('file_path', meta.get('file_name', 'Unknown Textbook'))
-                raw_filename = os.path.basename(raw_file) if raw_file else 'Unknown Textbook'
+                raw_filename = safe_basename(raw_file) if raw_file else 'Unknown Textbook'
                 friendly_book = get_friendly_book_name(raw_filename)
                 page_num = meta.get('source') or meta.get('page_label') or meta.get('page') or 'N/A'
                 snippet = node.text.strip()[:150].replace('\n', ' ')
