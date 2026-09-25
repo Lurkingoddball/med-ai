@@ -262,9 +262,9 @@ def get_best_available_groq_model(api_key: str) -> str:
         ]
         
         preferred_order = [
+            "llama-3.1-8b-instant",
             "llama-3.3-70b-versatile",
             "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant",
             "llama3-70b-8192",
             "llama3-8b-8192",
             "llama-3.2-3b-preview",
@@ -1053,79 +1053,98 @@ CORE GUIDELINES:
    - Ground your answer in the textbook context.
    - Only state 'This topic is not covered in the available textbook excerpts' if the excerpts have absolutely zero clinical or anatomical relevance."""
 
-            # Stream the generated response token by token with direct Groq chat streaming
-            def generate_stream():
+        # Stream the generated response token by token with direct Groq chat streaming (OUTSIDE of spinner)
+        def generate_stream():
+            from groq import Groq as RawGroqClient
+            groq_client = RawGroqClient(api_key=GROQ_API_KEY)
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+            ]
+            if history_str and history_str != "None":
+                messages.append({
+                    "role": "user",
+                    "content": f"PREVIOUS CONVERSATION CONTEXT:\n{history_str}\n\nPlease take this into account."
+                })
+                messages.append({
+                    "role": "assistant",
+                    "content": "Understood. I will keep the previous medical context in mind."
+                })
+
+            user_content = (
+                f"TEXTBOOK CONTEXT EXCERPTS:\n{context_str if context_str else 'No direct textbook excerpt found.'}\n\n"
+                f"STUDENT QUESTION:\n{user_query}\n\n"
+                f"Provide a comprehensive, structured clinical response following all guidelines:"
+            )
+            messages.append({"role": "user", "content": user_content})
+
+            target_model = GROQ_MODEL or "llama-3.1-8b-instant"
+            stream = None
+            try:
+                stream = groq_client.chat.completions.create(
+                    model=target_model,
+                    messages=messages,
+                    temperature=0.2,
+                    stream=True,
+                )
+            except Exception as e:
+                print(f"Notice: Groq primary model {target_model} error: {e}. Falling back to llama-3.1-8b-instant", flush=True)
                 try:
-                    from groq import Groq as RawGroqClient
-                    groq_client = RawGroqClient(api_key=GROQ_API_KEY)
-
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                    ]
-                    if history_str and history_str != "None":
-                        messages.append({
-                            "role": "user",
-                            "content": f"PREVIOUS CONVERSATION CONTEXT:\n{history_str}\n\nPlease take this into account."
-                        })
-                        messages.append({
-                            "role": "assistant",
-                            "content": "Understood. I will keep the previous medical context in mind."
-                        })
-
-                    user_content = (
-                        f"TEXTBOOK CONTEXT EXCERPTS:\n{context_str if context_str else 'No direct textbook excerpt found.'}\n\n"
-                        f"STUDENT QUESTION:\n{user_query}\n\n"
-                        f"Provide a comprehensive, structured clinical response following all guidelines:"
-                    )
-                    messages.append({"role": "user", "content": user_content})
-
                     stream = groq_client.chat.completions.create(
-                        model=GROQ_MODEL or "llama-3.1-8b-instant",
+                        model="llama-3.1-8b-instant",
                         messages=messages,
                         temperature=0.2,
                         stream=True,
                     )
-                    has_yielded = False
-                    for chunk in stream:
-                        if chunk.choices and len(chunk.choices) > 0:
-                            content = chunk.choices[0].delta.content
-                            if content:
-                                has_yielded = True
-                                yield content
-                    if not has_yielded:
-                        yield "I could not retrieve an answer for this query from the available excerpts. Please try rephrasing or checking your textbook selection."
-                except Exception as e:
-                    err_msg = str(e)
-                    if "413" in err_msg or "rate_limit" in err_msg.lower():
-                        yield "⚠️ **Rate Limit Notice**: Groq API token limit reached. Please wait a few seconds and retry."
-                    else:
-                        yield f"⚠️ **Error generating response**: {err_msg}"
+                except Exception as fallback_e:
+                    yield f"⚠️ **Groq API Error**: {fallback_e}"
+                    return
 
-            answer_text = st.write_stream(generate_stream())
-            if not answer_text or not str(answer_text).strip():
-                answer_text = "I could not retrieve an answer for this query. Please check your query or rephrase."
-            latency = time.time() - query_start_time
+            has_yielded = False
+            try:
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            has_yielded = True
+                            yield content
+            except Exception as stream_e:
+                err_msg = str(stream_e)
+                if "413" in err_msg or "rate_limit" in err_msg.lower():
+                    yield "\n\n⚠️ **Rate Limit Notice**: Groq API token limit reached. Please wait a few seconds and retry."
+                else:
+                    yield f"\n\n⚠️ **Streaming interrupted**: {err_msg}"
 
-            # Log interaction to SQLite analytics database
-            scope_summary = "All 11 Textbooks" if select_all else f"{len(selected_filenames)} selected: {selected_names_formatted[:60]}"
-            analytics.log_interaction(
-                session_id=st.session_state.session_id,
-                ip_address=client_ip,
-                user_query=user_query,
-                search_keywords=search_keywords,
-                selected_scope=scope_summary,
-                sources_cited=sources_list,
-                response_length=len(answer_text),
-                latency_seconds=latency,
-                user_agent=user_agent
-            )
+            if not has_yielded:
+                yield "I could not retrieve an answer for this query from the available excerpts. Please try rephrasing or checking your textbook selection."
 
-            # Display interactive page viewer & debugging metadata box
-            display_sources_and_page_viewer(sources_list, len(st.session_state.messages))
+        answer_text = st.write_stream(generate_stream())
+        if not answer_text or not str(answer_text).strip():
+            answer_text = "I could not retrieve an answer for this query. Please check your query or rephrase."
+            st.markdown(answer_text)
 
-            # Save assistant message with sources to history
-            st.session_state.messages.append({
-                "role": "assistant", 
-                "content": answer_text,
-                "sources": sources_list
-            })
+        latency = time.time() - query_start_time
+
+        # Log interaction to SQLite analytics database
+        scope_summary = "All 11 Textbooks" if select_all else f"{len(selected_filenames)} selected: {selected_names_formatted[:60]}"
+        analytics.log_interaction(
+            session_id=st.session_state.session_id,
+            ip_address=client_ip,
+            user_query=user_query,
+            search_keywords=search_keywords,
+            selected_scope=scope_summary,
+            sources_cited=sources_list,
+            response_length=len(str(answer_text)),
+            latency_seconds=latency,
+            user_agent=user_agent
+        )
+
+        # Display interactive page viewer & debugging metadata box
+        display_sources_and_page_viewer(sources_list, len(st.session_state.messages))
+
+        # Save assistant message with sources to history
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": answer_text,
+            "sources": sources_list
+        })
