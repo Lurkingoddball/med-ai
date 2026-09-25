@@ -245,9 +245,9 @@ except Exception:
 if not ADMIN_PASSCODE:
     ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "medai2026")
 
-@st.cache_data(ttl=3600)
-def get_best_available_groq_model(api_key: str) -> str:
-    """Queries Groq's live models endpoint with the API key and selects the best active generative chat model."""
+@st.cache_data(ttl=1800)
+def get_valid_chat_models(api_key: str) -> list:
+    """Queries Groq's live models endpoint with the API key and returns all active generative chat models."""
     try:
         from groq import Groq as RawGroqClient
         client = RawGroqClient(api_key=api_key)
@@ -255,32 +255,39 @@ def get_best_available_groq_model(api_key: str) -> str:
         print(f"Available Groq models: {all_models}", flush=True)
 
         # Exclude guard, moderation, classification, speech, audio, vision-only, embedding models
-        non_chat_keywords = ["guard", "classif", "whisper", "embed", "safeguard", "moderation", "rerank"]
-        valid_chat_models = [
+        non_chat_keywords = ["guard", "classif", "whisper", "embed", "safeguard", "moderation", "rerank", "vision"]
+        valid = [
             m for m in all_models
             if not any(kw in m.lower() for kw in non_chat_keywords)
         ]
         
-        preferred_order = [
-            "llama-3.1-8b-instant",
+        preferred_priority = [
             "llama-3.3-70b-versatile",
-            "llama-3.1-70b-versatile",
             "llama3-70b-8192",
             "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
             "llama-3.2-3b-preview",
             "llama-3.2-1b-preview",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it"
+            "qwen-2.5-32b",
+            "deepseek-r1-distill-llama-70b"
         ]
-        for candidate in preferred_order:
-            if candidate in valid_chat_models:
-                return candidate
-        
-        if valid_chat_models:
-            return valid_chat_models[0]
+        sorted_models = []
+        for p in preferred_priority:
+            if p in valid and p not in sorted_models:
+                sorted_models.append(p)
+        for m in valid:
+            if m not in sorted_models:
+                sorted_models.append(m)
+        if sorted_models:
+            return sorted_models
     except Exception as e:
-        print(f"Notice: Groq auto-detect model: {e}", flush=True)
-    return "llama-3.1-8b-instant"
+        print(f"Notice: Groq auto-detect models failed: {e}", flush=True)
+    return ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"]
+
+VALID_CHAT_MODELS = get_valid_chat_models(GROQ_API_KEY)
 
 GROQ_MODEL = None
 try:
@@ -292,8 +299,8 @@ except Exception:
 if not GROQ_MODEL:
     GROQ_MODEL = os.environ.get("GROQ_MODEL", "")
 
-if not GROQ_MODEL:
-    GROQ_MODEL = get_best_available_groq_model(GROQ_API_KEY)
+if not GROQ_MODEL and VALID_CHAT_MODELS:
+    GROQ_MODEL = VALID_CHAT_MODELS[0]
 
 # Initialize session state variables
 if "session_id" not in st.session_state:
@@ -480,17 +487,33 @@ def prepare_search_query(user_raw_query: str, conversation_history: list = None)
     try:
         from groq import Groq as RawGroqClient
         groq_client = RawGroqClient(api_key=GROQ_API_KEY)
-        resp = groq_client.chat.completions.create(
-            model=GROQ_MODEL or "llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are a clinical textbook search query optimizer. Output ONLY keywords."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.0,
-            max_tokens=60
-        )
-        terms = resp.choices[0].message.content.strip().replace('"', '').replace("'", "").replace('\n', ' ')
-        return terms if terms else user_raw_query
+        query_candidates = []
+        if GROQ_MODEL:
+            query_candidates.append(GROQ_MODEL)
+        for m in VALID_CHAT_MODELS:
+            if m not in query_candidates:
+                query_candidates.append(m)
+        for fallback in ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"]:
+            if fallback not in query_candidates:
+                query_candidates.append(fallback)
+
+        for model_name in query_candidates[:3]:
+            try:
+                resp = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a clinical textbook search query optimizer. Output ONLY keywords."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.0,
+                    max_tokens=60
+                )
+                terms = resp.choices[0].message.content.strip().replace('"', '').replace("'", "").replace('\n', ' ')
+                if terms:
+                    return terms
+            except Exception:
+                continue
+        return user_raw_query
     except Exception as e:
         print(f"Notice: search query optimizer fallback: {e}", flush=True)
         return user_raw_query
@@ -1078,27 +1101,36 @@ CORE GUIDELINES:
             )
             messages.append({"role": "user", "content": user_content})
 
-            target_model = GROQ_MODEL or "llama-3.1-8b-instant"
+            candidate_models = []
+            if GROQ_MODEL:
+                candidate_models.append(GROQ_MODEL)
+            for m in VALID_CHAT_MODELS:
+                if m not in candidate_models:
+                    candidate_models.append(m)
+            for fallback in ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"]:
+                if fallback not in candidate_models:
+                    candidate_models.append(fallback)
+
             stream = None
-            try:
-                stream = groq_client.chat.completions.create(
-                    model=target_model,
-                    messages=messages,
-                    temperature=0.2,
-                    stream=True,
-                )
-            except Exception as e:
-                print(f"Notice: Groq primary model {target_model} error: {e}. Falling back to llama-3.1-8b-instant", flush=True)
+            last_err = None
+
+            for model_cand in candidate_models:
                 try:
                     stream = groq_client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
+                        model=model_cand,
                         messages=messages,
                         temperature=0.2,
                         stream=True,
                     )
-                except Exception as fallback_e:
-                    yield f"⚠️ **Groq API Error**: {fallback_e}"
-                    return
+                    break
+                except Exception as e:
+                    last_err = e
+                    print(f"Notice: Model {model_cand} failed: {e}. Trying next candidate...", flush=True)
+                    continue
+
+            if not stream:
+                yield f"⚠️ **Groq API Error**: Could not connect to any model ({last_err}). Please check your API key in Streamlit secrets."
+                return
 
             has_yielded = False
             try:
