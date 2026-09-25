@@ -447,38 +447,52 @@ def initialize_system():
     return index, sorted(list(processed_files))
 
 
-def prepare_search_query(user_raw_query: str, llm, conversation_history: list = None) -> str:
+def prepare_search_query(user_raw_query: str, conversation_history: list = None) -> str:
     """
     Translates, expands, and disambiguates user queries (English, Hinglish, Hindi, Marathi),
-    corrects spelling mistakes/typos, and resolves follow-up references ('it', 'its treatment', 'management for iy')
-    using conversation history into precise English medical textbook search keywords.
+    identifies clinical conditions for symptom descriptions (e.g., 'pain and swelling in middle ear' -> 'otitis media mastoiditis middle ear effusion'),
+    corrects spelling mistakes/typos, and resolves follow-up references using conversation history
+    into precise English medical textbook search keywords.
     """
     history_context = ""
     if conversation_history:
         recent_turns = []
         for msg in conversation_history[-4:]:
-            role = "Student" if msg["role"] == "user" else "Assistant"
-            content_snippet = msg["content"][:250].replace("\n", " ").strip()
-            recent_turns.append(f"{role}: {content_snippet}")
+            role = "Student" if msg.get("role") == "user" else "Assistant"
+            content_snippet = str(msg.get("content", ""))[:250].replace("\n", " ").strip()
+            if content_snippet:
+                recent_turns.append(f"{role}: {content_snippet}")
         if recent_turns:
             history_context = "PREVIOUS CONVERSATION CONTEXT:\n" + "\n".join(recent_turns) + "\n\n"
 
     prompt = (
         "You are an expert clinical search query optimizer for medical textbooks.\n\n"
         f"{history_context}"
-        f"LATEST STUDENT QUESTION (may contain spelling mistakes, typos, or follow-up pronouns like 'it', 'this', 'iy'):\n"
+        f"LATEST STUDENT QUESTION (may contain symptoms, Hinglish words, typos, or follow-up pronouns):\n"
         f"'{user_raw_query}'\n\n"
         "OPTIMIZATION RULES:\n"
-        "1. Context & Pronoun Resolution: If the student asks a follow-up question using pronouns or implied references (e.g., 'tell the management for iy', 'treatment of it', 'what are its causes', 'complications of that'), identify the specific medical disease/condition discussed in the previous conversation (e.g., Raynaud's phenomenon) and include it explicitly in the keywords.\n"
-        "2. Typo & Spelling Correction: Automatically fix any spelling mistakes or typos (e.g., 'iy' -> 'it', 'pancreatitus' -> 'pancreatitis', 'diabtes' -> 'diabetes', 'otitis media treatement' -> 'otitis media treatment').\n"
-        "3. Output Format: Produce 4 to 10 high-yield English medical keywords for vector textbook search (e.g., disease name, pathology, clinical signs, diagnosis, management protocols, drug classes).\n"
-        "4. Output ONLY the search keywords separated by single spaces. Do not output markdown, punctuation, quotes, or conversational explanations."
+        "1. Symptom & Presentation Queries: If the student describes symptoms or clinical signs without naming the exact condition (e.g., 'pain and swelling in middle ear', 'fever with right lower abdominal pain', 'chest pain radiating to arm'), identify the top differential diagnoses and anatomical terms (e.g. otitis media mastoiditis middle ear effusion otalgia tympanic membrane) and include both symptoms and conditions in keywords.\n"
+        "2. Hinglish & Language Translation: If the student asks in Hinglish, Hindi, or Marathi (e.g., 'otitis media kya hota hai', 'kaan me dard aur sujan', 'treatment batao'), translate the medical meaning into standard English medical textbook search keywords.\n"
+        "3. Context & Pronoun Resolution: If the student asks a follow-up question using pronouns or implied references (e.g., 'tell the management for iy', 'treatment of it', 'what are its causes'), identify the specific medical disease discussed in the previous conversation and include it explicitly.\n"
+        "4. Typo & Spelling Correction: Automatically fix medical spelling mistakes or typos (e.g., 'iy' -> 'it', 'pancreatitus' -> 'pancreatitis', 'otitis media treatement' -> 'otitis media treatment').\n"
+        "5. Output Format: Output ONLY 4 to 10 high-yield English medical keywords separated by single spaces. Do not output markdown, punctuation, quotes, or conversational explanations."
     )
     try:
-        res = llm.complete(prompt)
-        terms = str(res).strip().replace('"', '').replace("'", "").replace('\n', ' ')
+        from groq import Groq as RawGroqClient
+        groq_client = RawGroqClient(api_key=GROQ_API_KEY)
+        resp = groq_client.chat.completions.create(
+            model=GROQ_MODEL or "llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "You are a clinical textbook search query optimizer. Output ONLY keywords."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0,
+            max_tokens=60
+        )
+        terms = resp.choices[0].message.content.strip().replace('"', '').replace("'", "").replace('\n', ' ')
         return terms if terms else user_raw_query
-    except Exception:
+    except Exception as e:
+        print(f"Notice: search query optimizer fallback: {e}", flush=True)
         return user_raw_query
 
 
@@ -919,18 +933,25 @@ if user_query:
         scope_text = "all textbooks" if select_all else f"{len(selected_filenames)} selected book(s)"
         with st.spinner(f"Searching {scope_text}..."):
             
-            # 1. Translate / expand query with conversation history context and typo correction
+            # 1. Translate / expand query with symptom-to-condition analysis & typo correction
             search_keywords = prepare_search_query(
                 user_raw_query=user_query, 
-                llm=Settings.llm, 
                 conversation_history=st.session_state.messages[:-1]
             )
 
-            # 2. Retrieve candidates (top_k=16 allows thorough selection)
-            retriever = index.as_retriever(similarity_top_k=16)
+            # 2. Retrieve candidates (top_k=24 allows thorough candidate gathering)
+            retriever = index.as_retriever(similarity_top_k=24)
             retrieved_nodes = retriever.retrieve(search_keywords)
 
-            # 3. Apply student's textbook selection filter & anti-monopoly diversity
+            # If keyword retrieval gave few candidates, supplement with raw query
+            if len(retrieved_nodes) < 10 and search_keywords.strip().lower() != user_query.strip().lower():
+                try:
+                    raw_nodes = retriever.retrieve(user_query)
+                    retrieved_nodes.extend(raw_nodes)
+                except Exception:
+                    pass
+
+            # 3. Apply student's textbook selection filter & diversity balance
             unique_nodes = []
             seen_texts = set()
             book_counts = {}
@@ -948,18 +969,18 @@ if user_query:
                 if norm_key in seen_texts:
                     continue
 
-                # Limit chunks per textbook to maintain balance and prevent token explosion
+                # Limit chunks per textbook to maintain balance
                 if select_all:
                     cnt = book_counts.get(book_filename, 0)
-                    if cnt >= 2:
+                    if cnt >= 3:
                         continue
                     book_counts[book_filename] = cnt + 1
 
                 seen_texts.add(norm_key)
                 unique_nodes.append(node)
 
-                # Cap at 4 high-yield chunks to strictly respect Groq 8000 TPM limits
-                if len(unique_nodes) >= 4:
+                # Cap at 5 high-yield chunks to respect Groq token limits
+                if len(unique_nodes) >= 5:
                     break
 
             # 4. Format context with explicit textbook and page numbers
@@ -996,34 +1017,83 @@ if user_query:
             history_blocks = []
             for msg in st.session_state.messages[-3:-1]:
                 role_label = "User" if msg["role"] == "user" else "Assistant"
-                history_blocks.append(f"{role_label}: {msg['content'][:250]}...")
+                snippet = str(msg.get('content', ''))[:250].replace('\n', ' ')
+                history_blocks.append(f"{role_label}: {snippet}...")
             history_str = "\n".join(history_blocks) if history_blocks else "None"
 
-            # 6. High-yield, token-optimized medical prompt
+            # 6. High-yield medical prompt with strict Hinglish and symptom guidelines
             selected_names_formatted = ", ".join([get_friendly_book_name(b) for b in selected_filenames])
             system_prompt = f"""You are an authoritative Medical Reference Assistant for medical students and clinicians.
-Provide structured, comprehensive, and clinically accurate answers based strictly on the provided textbook CONTEXT.
+Provide structured, comprehensive, and clinically accurate answers based on the provided textbook CONTEXT.
 Active Scope: {selected_names_formatted}
 
 CORE GUIDELINES:
-1. CLINICAL DEPTH: Provide detailed, rigorous explanations (definitions, classifications, anatomy, physiology, clinical features, diagnostic workup, and treatment/management with exact drug names/dosages if given). Format with bold headers, structured tables, and clear bullet points.
-2. CITATIONS: Cite the textbook and page number for each major section or finding: [Book Title, p. X]. Include a 'References / Sources Consulted' list at the very end.
-3. MULTILINGUAL: Respond in the exact language/dialect used by the user (English, Hinglish, Hindi, Marathi) while keeping exact English medical terms intact.
-4. HONESTY: If a specific sub-aspect is not in the excerpts, note it clearly. If the context has zero relevance, respond: 'This topic is not covered in the available textbook excerpts.'"""
+1. CLINICAL DEPTH & DIFFERENTIAL DIAGNOSIS:
+   - When asked about a specific disease/condition: Explain definitions, classifications, anatomy/physiology, clinical features, diagnostic workup, and treatment/management (with exact drug names/dosages if provided).
+   - When asked about SYMPTOMS or CLINICAL PRESENTATIONS (e.g. "pain and swelling in middle ear", "fever with chills and cough"):
+     * Do NOT refuse to answer!
+     * Immediately identify the most likely conditions and differential diagnoses based on textbook excerpts (e.g., Acute Otitis Media, Otitis Externa, Acute Mastoiditis, Serous Otitis Media).
+     * Explain the anatomical and pathophysiological basis from the textbooks.
+     * Highlight key examination signs (e.g., otoscopy appearance of tympanic membrane, tragal tenderness).
+     * Outline the first-line medical management and drug treatment according to textbook protocols.
+   - Format with bold headers, structured tables, and clear bullet points.
 
-            full_prompt = (
-                f"{system_prompt}\n\n"
-                f"===================\nCONVERSATION HISTORY:\n===================\n{history_str}\n\n"
-                f"===================\nTEXTBOOK CONTEXT EXCERPTS:\n===================\n{context_str}\n\n"
-                f"===================\nUSER QUESTION:\n===================\n{user_query}\n\n"
-                f"DETAILED MEDICAL RESPONSE:\n"
-            )
+2. CITATIONS: Cite the textbook and page number for each major finding or section: [Book Title, p. X]. Include a '### References / Sources Consulted' section at the end.
 
-            # Stream the generated response token by token with rate limit protection
+3. LANGUAGE & SCRIPT RULES:
+   - ENGLISH: If the student asks in English, reply in professional medical English.
+   - HINGLISH: If the student asks in Hinglish (Hindi written using the English alphabet / Roman script, chatting style, e.g. "otitis media kya hota hai", "treatment kya hai", "ear me pain ho raha hai"):
+     * You MUST reply in conversational, natural Hinglish using the ENGLISH/LATIN ALPHABET ONLY (e.g., "Otitis media middle ear ka infection ya inflammation hota hai...").
+     * CRITICAL: NEVER USE DEVANAGARI / HINDI SCRIPT (हिंदी लिपि) for Hinglish questions! Write completely in chatting-style English letters.
+     * Keep all section headings in English (e.g., "### Overview & Meaning", "### Clinical Features", "### Differential Diagnosis", "### Treatment & Management", "### References / Sources Consulted").
+   - HINDI / MARATHI: Only if the student explicitly wrote their prompt in Devanagari script, reply in Devanagari script.
+   - MEDICAL TERMINOLOGY: Regardless of language, ALWAYS keep anatomical names, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
+
+4. HONESTY:
+   - Ground your answer in the textbook context.
+   - Only state 'This topic is not covered in the available textbook excerpts' if the excerpts have absolutely zero clinical or anatomical relevance."""
+
+            # Stream the generated response token by token with direct Groq chat streaming
             def generate_stream():
                 try:
-                    for chunk in Settings.llm.stream_complete(full_prompt):
-                        yield chunk.delta
+                    from groq import Groq as RawGroqClient
+                    groq_client = RawGroqClient(api_key=GROQ_API_KEY)
+
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                    ]
+                    if history_str and history_str != "None":
+                        messages.append({
+                            "role": "user",
+                            "content": f"PREVIOUS CONVERSATION CONTEXT:\n{history_str}\n\nPlease take this into account."
+                        })
+                        messages.append({
+                            "role": "assistant",
+                            "content": "Understood. I will keep the previous medical context in mind."
+                        })
+
+                    user_content = (
+                        f"TEXTBOOK CONTEXT EXCERPTS:\n{context_str if context_str else 'No direct textbook excerpt found.'}\n\n"
+                        f"STUDENT QUESTION:\n{user_query}\n\n"
+                        f"Provide a comprehensive, structured clinical response following all guidelines:"
+                    )
+                    messages.append({"role": "user", "content": user_content})
+
+                    stream = groq_client.chat.completions.create(
+                        model=GROQ_MODEL or "llama-3.1-8b-instant",
+                        messages=messages,
+                        temperature=0.2,
+                        stream=True,
+                    )
+                    has_yielded = False
+                    for chunk in stream:
+                        if chunk.choices and len(chunk.choices) > 0:
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                has_yielded = True
+                                yield content
+                    if not has_yielded:
+                        yield "I could not retrieve an answer for this query from the available excerpts. Please try rephrasing or checking your textbook selection."
                 except Exception as e:
                     err_msg = str(e)
                     if "413" in err_msg or "rate_limit" in err_msg.lower():
@@ -1032,6 +1102,8 @@ CORE GUIDELINES:
                         yield f"⚠️ **Error generating response**: {err_msg}"
 
             answer_text = st.write_stream(generate_stream())
+            if not answer_text or not str(answer_text).strip():
+                answer_text = "I could not retrieve an answer for this query. Please check your query or rephrase."
             latency = time.time() - query_start_time
 
             # Log interaction to SQLite analytics database
