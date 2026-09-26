@@ -595,37 +595,26 @@ Settings.llm = Groq(
 book_options = {get_friendly_book_name(b): b for b in loaded_books}
 
 # ==========================================
-# GEMINI UNIFIED SIDEBAR NAVIGATION
+# SIDEBAR NAVIGATION
 # ==========================================
 with st.sidebar:
-    # 1. Brand Logo Header
-    st.markdown("""
-        <div class="gemini-sidebar-title">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z" fill="url(#gemini-grad-side)"/>
-                <defs>
-                    <linearGradient id="gemini-grad-side" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                        <stop stop-color="#4285F4"/>
-                        <stop offset="0.38" stop-color="#9B72CB"/>
-                        <stop offset="0.78" stop-color="#D96570"/>
-                        <stop offset="1" stop-color="#F2A600"/>
-                    </linearGradient>
-                </defs>
-            </svg>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 2. "+ New chat" Pill Button
+    # 1. "+ New chat" Pill Button — saves current chat to history before clearing
     if st.button("➕  New chat", key="new_chat_btn", use_container_width=True):
+        # Auto-save non-empty current chat to saved_chats
+        if st.session_state.get("messages"):
+            if "saved_chats" not in st.session_state:
+                st.session_state.saved_chats = []
+            cur_title = str(st.session_state.messages[0]["content"])[:30]
+            already = any(s["title"] == cur_title for s in st.session_state.saved_chats)
+            if not already:
+                st.session_state.saved_chats.insert(0, {
+                    "title": cur_title,
+                    "messages": list(st.session_state.messages)
+                })
         st.session_state.messages = []
         st.session_state.pending_query = None
         st.session_state.current_view = "chat"
         st.rerun()
-
-    # 3. Quick Utility Navigation
-    with st.expander("🔍 Search & Medical Scope", expanded=False):
-        st.caption("Search across textbooks and query history.")
-        search_filter = st.text_input("Filter books:", placeholder="e.g. Medicine, Surgery...")
 
     # 4. Notebooks Section (Medical Subjects)
     st.markdown('<div class="gemini-section-header">Notebooks</div>', unsafe_allow_html=True)
@@ -657,54 +646,47 @@ with st.sidebar:
     if len(selected_filenames) > 4:
         st.caption(f"+ {len(selected_filenames) - 4} more notebooks active")
 
-    # 5. Recent Queries Section (pulled from SQLite logs)
-    st.markdown('<div class="gemini-section-header">Recent</div>', unsafe_allow_html=True)
-    recent_logs = []
-    try:
-        df_recent = analytics.get_all_logs()
-        if not df_recent.empty:
-            seen_q = set()
-            unique_q = []
-            for q in df_recent["user_query"].dropna().tolist():
-                clean_q = q.strip()
-                if clean_q and clean_q not in seen_q:
-                    seen_q.add(clean_q)
-                    unique_q.append(clean_q)
-                    if len(unique_q) >= 6:
-                        break
-            recent_logs = unique_q
-    except Exception:
-        recent_logs = []
+    # 5. Chat History Section — stored per session in session_state
+    # Initialize saved chats store
+    if "saved_chats" not in st.session_state:
+        st.session_state.saved_chats = []  # list of {"title": str, "messages": list}
 
-    if recent_logs:
-        for idx, r_q in enumerate(recent_logs):
-            truncated = r_q[:28] + "..." if len(r_q) > 28 else r_q
-            if st.button(f"💬 {truncated}", key=f"rec_q_{idx}", use_container_width=True):
-                st.session_state.pending_query = r_q
-                st.session_state.current_view = "chat"
+    saved = st.session_state.saved_chats
+    n_saved = len(saved)
+    folder_label = f"📁 Recent Chats ({n_saved})" if n_saved > 0 else "📁 Recent Chats"
+
+    with st.expander(folder_label, expanded=True):
+        if saved:
+            # Clear-all button at the top inside the folder
+            if st.button("🗑️ Clear all chats", key="clear_all_chats", use_container_width=True):
+                st.session_state.saved_chats = []
+                st.session_state.messages = []
                 st.rerun()
-    else:
-        st.caption("No recent queries yet.")
 
-    # 6. Library Books Status expander
-    with st.expander("📖 Library Books Status", expanded=False):
-        for book in loaded_books:
-            friendly = get_friendly_book_name(book)
-            if "parks" in book.lower():
-                st.caption(f"⚠️ **{friendly}**\n*(Scanned image PDF)*")
-            else:
-                st.caption(f"✅ **{friendly}**")
-
-    # 7. User Profile Card at bottom (Aryan Jadhav + ⚙️)
-    st.markdown("""
-        <div class="gemini-user-profile">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <div class="gemini-avatar">AJ</div>
-                <div class="gemini-user-name">Aryan Jadhav</div>
-            </div>
-            <div style="font-size: 1.1rem; color: #5f6368;" title="Settings">⚙️</div>
-        </div>
-    """, unsafe_allow_html=True)
+            for c_idx, chat in enumerate(saved):
+                c_col1, c_col2 = st.columns([5, 1])
+                with c_col1:
+                    label = chat["title"][:24] + "..." if len(chat["title"]) > 24 else chat["title"]
+                    if st.button(f"💬 {label}", key=f"open_chat_{c_idx}", use_container_width=True):
+                        # Auto-save current chat before switching
+                        if st.session_state.get("messages"):
+                            cur_title = str(st.session_state.messages[0]["content"])[:30]
+                            already = any(s["title"] == cur_title for s in st.session_state.saved_chats)
+                            if not already:
+                                st.session_state.saved_chats.insert(0, {
+                                    "title": cur_title,
+                                    "messages": list(st.session_state.messages)
+                                })
+                        st.session_state.messages = list(chat["messages"])
+                        st.session_state.pending_query = None
+                        st.session_state.current_view = "chat"
+                        st.rerun()
+                with c_col2:
+                    if st.button("✕", key=f"del_chat_{c_idx}", help="Delete this chat"):
+                        st.session_state.saved_chats.pop(c_idx)
+                        st.rerun()
+        else:
+            st.caption("No saved chats yet. Start a conversation and click ➕ New chat to save it here.")
 
 
 # Top Navigation Bar (Creator Portal Button)
@@ -911,12 +893,15 @@ if "messages" not in st.session_state:
 # Hero State: When no messages have been sent yet
 if len(st.session_state.messages) == 0:
     st.markdown("""
-        <div style="text-align: center; margin-top: 14vh; margin-bottom: 2.5rem;">
-            <h1 style="font-size: 2.85rem; font-weight: 500; letter-spacing: -0.025em; color: #1f1f1f; margin-bottom: 0.5rem;">
-                Hello, How can i help you
+        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
+            <h1 style="font-size: clamp(1.3rem, 4vw, 1.9rem); font-weight: 500; letter-spacing: -0.02em; color: #1f1f1f; margin-bottom: 0.4rem; line-height: 1.3;">
+                Hello, How can I help you?
             </h1>
-            <p style="font-size: 1.08rem; color: #5f6368; max-width: 600px; margin: 0 auto;">
-                Ask in-depth questions
+            <p style="font-size: clamp(0.82rem, 2.5vw, 0.95rem); color: #5f6368; max-width: 500px; margin: 0 auto 0.6rem auto;">
+                Ask in-depth medical questions
+            </p>
+            <p style="font-size: 0.72rem; color: #9aa0a6; margin: 0 auto; letter-spacing: 0.02em;">
+                Created by <strong style="color: #5f6368;">Aryan Jadhav</strong>
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -1072,9 +1057,12 @@ CORE GUIDELINES:
    - HINDI / MARATHI: Only if the student explicitly wrote their prompt in Devanagari script, reply in Devanagari script.
    - MEDICAL TERMINOLOGY: Regardless of language, ALWAYS keep anatomical names, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
 
-4. HONESTY:
-   - Ground your answer in the textbook context.
-   - Only state 'This topic is not covered in the available textbook excerpts' if the excerpts have absolutely zero clinical or anatomical relevance."""
+4. KNOWLEDGE BREADTH:
+   - Always provide a full, detailed clinical answer.
+   - Use the textbook excerpts as your PRIMARY source. Cite them with page numbers wherever possible.
+   - If a specific detail is not in the provided excerpts but is standard medical knowledge, you MUST still answer it using your general medical knowledge — clearly note with "[General Medical Knowledge]" for any part not directly from the excerpts.
+   - NEVER refuse to answer or say 'not covered in excerpts' for well-established medical topics like pathophysiology, etiology, treatment, etc.
+   - Only skip a topic if it is genuinely outside the scope of medicine (e.g. cooking, politics)."""
 
         # Stream the generated response token by token with direct Groq chat streaming (OUTSIDE of spinner)
         def generate_stream():
@@ -1120,6 +1108,7 @@ CORE GUIDELINES:
                         model=model_cand,
                         messages=messages,
                         temperature=0.2,
+                        max_tokens=2048,
                         stream=True,
                     )
                     break
