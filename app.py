@@ -947,24 +947,43 @@ if user_query:
                 conversation_history=st.session_state.messages[:-1]
             )
 
-            # 2. Retrieve candidates (top_k=24 allows thorough candidate gathering)
-            retriever = index.as_retriever(similarity_top_k=24)
+            # 2. Retrieve candidates — top_k=16 to reduce noise
+            retriever = index.as_retriever(similarity_top_k=16)
             retrieved_nodes = retriever.retrieve(search_keywords)
 
             # If keyword retrieval gave few candidates, supplement with raw query
-            if len(retrieved_nodes) < 10 and search_keywords.strip().lower() != user_query.strip().lower():
+            if len(retrieved_nodes) < 8 and search_keywords.strip().lower() != user_query.strip().lower():
                 try:
                     raw_nodes = retriever.retrieve(user_query)
                     retrieved_nodes.extend(raw_nodes)
                 except Exception:
                     pass
 
-            # 3. Apply student's textbook selection filter & diversity balance
+            # Sort by similarity score descending (best matches first)
+            retrieved_nodes = sorted(
+                retrieved_nodes,
+                key=lambda n: getattr(n, 'score', 0.0) or 0.0,
+                reverse=True
+            )
+
+            # Build a set of keyword stems for relevance checking
+            _query_terms = set(
+                w.lower() for w in (search_keywords + " " + user_query).split()
+                if len(w) > 3
+            )
+
+            # 3. Apply student's textbook selection filter, score threshold & diversity balance
+            SCORE_THRESHOLD = 0.28  # drop nodes with cosine similarity below this
             unique_nodes = []
             seen_texts = set()
             book_counts = {}
 
             for node in retrieved_nodes:
+                # --- Score filter: reject clearly irrelevant chunks ---
+                node_score = getattr(node, 'score', None)
+                if node_score is not None and node_score < SCORE_THRESHOLD:
+                    continue
+
                 raw_file = node.metadata.get('file_path', node.metadata.get('file_name', ''))
                 book_filename = safe_basename(raw_file)
 
@@ -977,6 +996,11 @@ if user_query:
                 if norm_key in seen_texts:
                     continue
 
+                # --- Keyword relevance guard: chunk must share at least 1 keyword with query ---
+                chunk_lower = node.text.lower()
+                if _query_terms and not any(term in chunk_lower for term in _query_terms):
+                    continue
+
                 # Limit chunks per textbook to maintain balance
                 if select_all:
                     cnt = book_counts.get(book_filename, 0)
@@ -987,8 +1011,8 @@ if user_query:
                 seen_texts.add(norm_key)
                 unique_nodes.append(node)
 
-                # Cap at 5 high-yield chunks to respect Groq token limits
-                if len(unique_nodes) >= 5:
+                # Cap at 6 high-yield chunks to respect Groq token limits
+                if len(unique_nodes) >= 6:
                     break
 
             # 4. Format context with explicit textbook and page numbers
