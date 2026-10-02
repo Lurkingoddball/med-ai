@@ -1244,7 +1244,8 @@ CORE OPERATIONAL RULES:
             # Fallback to Google Gemini free tier if Groq is unavailable
             if not stream and GEMINI_API_KEY:
                 try:
-                    import google.generativeai as genai
+                    import importlib
+                    genai = importlib.import_module("google.generativeai")
                     genai.configure(api_key=GEMINI_API_KEY)
                     gem_model = genai.GenerativeModel(
                         model_name="gemini-2.0-flash",
@@ -1259,6 +1260,8 @@ CORE OPERATIONAL RULES:
                             yield chunk.text
                     if has_gem_yielded:
                         return
+                except ImportError:
+                    pass
                 except Exception as gem_e:
                     print(f"Gemini fallback error: {gem_e}", flush=True)
 
