@@ -9,12 +9,15 @@ app_file: app.py
 pinned: false
 ---
 
-# 🩺 Medical AI Textbook Assistant
+# 🩺 Indian Medical AI — 19-Subject Clinical & Academic Intelligence
 
-An AI-powered clinical reference assistant built exclusively for medical students and clinicians.
+An AI-powered clinical decision support and academic mentor designed specifically for **Indian medical students (MBBS / NEET-PG / NExT)** and **practicing physicians**.
 
-## Features
-- **11 Medical Textbooks**: Synthesizes clinical evidence across Anatomy, Physiology, Pharmacology, Medicine, Surgery, Obstetrics & Gynecology.
-- **Strict Evidence-Based Retrieval**: Chroma vector retrieval with page citations.
-- **Multilingual Support**: Supports English, Hinglish, Hindi, and Marathi clinical queries.
-- **Creator Dashboard**: Private audit logs and usage tracking.
+## 🚀 Key Features
+- **Dual Persona Engine**:
+  - **👨‍⚕️ Indian Physician / Clinician Mode**: Emergency triage, red flags, ICMR Standard Treatment Workflows (STWs), exact drug dosages with common Indian brand formulations (e.g. Augmentin, Pantoprazole, Azithral), and statutory reporting (NTEP, NVBDCP, Snakebite/Rabies protocols).
+  - **🎓 Medical Student / NEET-PG Mode**: Complete 19 MBBS subjects mapped to the National Medical Commission (NMC) curriculum, etiopathogenesis, gross/micro pathology, hallmark radiological signs, mnemonics, and high-yield comparison tables.
+- **19 MBBS Subjects Covered**: Pre-clinical (Anatomy, Physiology, Biochem), Para-clinical (Pathology, Pharma, Micro, FMT), Minor Clinical (PSM, Ophthal, ENT), and Major Clinical (Medicine, Surgery, OB-GYN, Paediatrics, Orthopaedics, Derma, Psych, Anaesthesia, Radiology).
+- **Authentic Open Source & Clinical Reference Grounding**: Grounded in ICMR STWs, WHO clinical protocols, MoHFW guidelines, and standard reference textbooks with page-level PDF preview.
+- **Zero-Cost High-Speed Architecture**: Powered by Groq LLaMA 3.3 70B & DeepSeek reasoning with automatic Google Gemini free fallback.
+- **Multilingual Clinical Processing**: Understands English, natural conversational Hinglish (Latin alphabet), Hindi, and Marathi with medical terms preserved in standard terminology.

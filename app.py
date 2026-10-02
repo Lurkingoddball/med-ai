@@ -217,6 +217,16 @@ if not GROQ_API_KEY:
 
 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
+# Optional Free Google Gemini API Key for dual-model redundancy
+GEMINI_API_KEY = ""
+try:
+    if "GEMINI_API_KEY" in st.secrets:
+        GEMINI_API_KEY = str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+except Exception:
+    pass
+if not GEMINI_API_KEY:
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+
 from llama_index.core import VectorStoreIndex, StorageContext, Settings
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -347,7 +357,7 @@ def get_client_user_agent() -> str:
 
 
 def get_friendly_book_name(filename: str) -> str:
-    """Returns a clean, student-friendly title with subject emoji for each textbook."""
+    """Returns a clean, student-friendly title with subject emoji for each textbook or clinical dataset."""
     lower = filename.lower()
     if "api" in lower:
         return "🩺 API - Textbook of Medicine (9th Ed)"
@@ -359,7 +369,7 @@ def get_friendly_book_name(filename: str) -> str:
         return "🩺 Harrison's Internal Medicine (21st Ed)"
     elif "tripathy" in lower or "tripathi" in lower:
         return "💊 KD Tripathi - Pharmacology"
-    elif "parks" in lower:
+    elif "parks" in lower or "park" in lower:
         return "🌍 Park's Preventive & Social Medicine (23rd Ed)"
     elif "sembulingum" in lower or "sembulingam" in lower:
         return "⚡ Sembulingam - Physiology"
@@ -371,6 +381,26 @@ def get_friendly_book_name(filename: str) -> str:
         return "🏛️ Vishram Singh - Anatomy Vol 2 (Abdomen & Lower Limb)"
     elif "vishram" in lower and "vol 3" in lower:
         return "🏛️ Vishram Singh - Anatomy Vol 3 (Head, Neck & Brain)"
+    elif "robbins" in lower:
+        return "🔬 Robbins & Cotran - Pathologic Basis of Disease"
+    elif "bailey" in lower:
+        return "🔪 Bailey & Love's - Short Practice of Surgery"
+    elif "ghai" in lower:
+        return "👶 OP Ghai - Essential Pediatrics"
+    elif "parikh" in lower or "fmt" in lower:
+        return "⚖️ Parikh's - Forensic Medicine & Toxicology"
+    elif "khurana" in lower:
+        return "👁️ AK Khurana - Comprehensive Ophthalmology"
+    elif "dhingra" in lower:
+        return "👂 PL Dhingra - Diseases of Ear, Nose & Throat"
+    elif "icmr" in lower or "stw" in lower:
+        return "🇮🇳 ICMR - Standard Treatment Workflows"
+    elif "ntep" in lower or "tuberculosis" in lower:
+        return "🇮🇳 NTEP - National TB Elimination Guidelines"
+    elif "nvbdcp" in lower or "malaria" in lower:
+        return "🇮🇳 NVBDCP - Vector Borne Disease Guidelines"
+    elif "who" in lower:
+        return "🌐 WHO - Clinical Guidelines"
     return filename
 
 
@@ -616,35 +646,60 @@ with st.sidebar:
         st.session_state.current_view = "chat"
         st.rerun()
 
-    # 4. Notebooks Section (Medical Subjects)
-    st.markdown('<div class="gemini-section-header">Notebooks</div>', unsafe_allow_html=True)
-
-    select_all = st.checkbox(
-        f"Select All Textbooks ({len(loaded_books)} books)", 
-        value=True,
-        help="Search across all medical subjects simultaneously with balanced source diversity."
+    # 2. Medical Persona Switcher
+    st.markdown('<div class="gemini-section-header">Target Persona</div>', unsafe_allow_html=True)
+    persona_mode = st.radio(
+        "Choose Mode:",
+        [
+            "👨‍⚕️ Physician / Clinical Practice", 
+            "🎓 Medical Student / NEET-PG"
+        ],
+        key="medical_persona_mode",
+        help="Physician Mode: Indian treatment protocols, ICMR STWs, drug dosages & brands, emergency triage.\nStudent Mode: 19 MBBS subjects, high-yield exam nuggets, pathology, classifications, mnemonics."
     )
-    
-    if select_all:
-        selected_filenames = list(loaded_books)
-        st.caption("✨ *All 11 medical notebooks active*")
-    else:
-        selected_display_names = st.multiselect(
-            "Active Notebook(s):",
-            options=list(book_options.keys()),
-            default=list(book_options.keys())[:3] if len(book_options) >= 3 else list(book_options.keys()),
-            help="Choose any 1 or more textbooks."
-        )
-        selected_filenames = [book_options[name] for name in selected_display_names]
-        if not selected_filenames:
-            st.error("⚠️ Please select at least one textbook!")
 
-    # Display clean notebook list items like screenshot
-    active_subjects = [get_friendly_book_name(b).split(" - ")[0].strip() for b in selected_filenames[:4]]
-    for subj in active_subjects:
-        st.markdown(f'<div class="gemini-notebook-item">📓 {subj}</div>', unsafe_allow_html=True)
-    if len(selected_filenames) > 4:
-        st.caption(f"+ {len(selected_filenames) - 4} more notebooks active")
+    # 3. Medical Scope & Subjects (NMC 19-Subject Curriculum)
+    st.markdown('<div class="gemini-section-header">Subject & Knowledge Scope</div>', unsafe_allow_html=True)
+    scope_option = st.selectbox(
+        "Medical Scope:",
+        [
+            "✨ All 19 MBBS Subjects (Comprehensive)",
+            "🩺 Clinical Medicine & Tropical Diseases",
+            "🔪 Surgery, Ortho & Anaesthesia",
+            "🤰 OBGYN & Paediatrics",
+            "🔬 Pathology, Micro & Pharmacology",
+            "🏛️ Anatomy, Physiology & Biochem",
+            "🌍 PSM, Ophthalmology & ENT",
+            "📚 Custom Textbook Filter"
+        ],
+        key="subject_scope_selector",
+        help="Select a clinical category or customize active indexed textbooks."
+    )
+
+    if scope_option == "📚 Custom Textbook Filter":
+        select_all = st.checkbox(
+            f"Select All Textbooks ({len(loaded_books)} books)", 
+            value=False,
+            help="Search across all medical subjects simultaneously."
+        )
+        if select_all:
+            selected_filenames = list(loaded_books)
+            st.caption("✨ *All indexed textbooks active*")
+        else:
+            selected_display_names = st.multiselect(
+                "Active Textbook(s):",
+                options=list(book_options.keys()),
+                default=list(book_options.keys())[:3] if len(book_options) >= 3 else list(book_options.keys()),
+                help="Choose any 1 or more textbooks."
+            )
+            selected_filenames = [book_options[name] for name in selected_display_names]
+            if not selected_filenames:
+                selected_filenames = list(loaded_books)
+                st.info("Defaulted to all textbooks.")
+    else:
+        select_all = True
+        selected_filenames = list(loaded_books)
+        st.caption(f"✨ *Active Knowledge Base: {scope_option}*")
 
     # 5. Chat History Section — stored per session in session_state
     # Initialize saved chats store
@@ -880,11 +935,9 @@ if st.session_state.current_view == "creator":
 # ==========================================
 
 # Active Scope Caption
-if select_all:
-    st.caption("✨ **Active Scope:** All 11 Medical Textbooks (Balanced Multi-Book Search)")
-else:
-    selected_names_str = ", ".join([get_friendly_book_name(f).split(" - ")[0] for f in selected_filenames])
-    st.caption(f"🎯 **Active Scope:** {len(selected_filenames)} Selected Book(s): *{selected_names_str}*")
+cur_persona = st.session_state.get("medical_persona_mode", "👨‍⚕️ Physician / Clinical Practice")
+cur_scope = st.session_state.get("subject_scope_selector", "✨ All 19 MBBS Subjects")
+st.caption(f"🇮🇳 **Persona:** `{cur_persona}` | 📚 **Scope:** `{cur_scope}`")
 
 # Chat Interface State Management
 if "messages" not in st.session_state:
@@ -893,18 +946,45 @@ if "messages" not in st.session_state:
 # Hero State: When no messages have been sent yet
 if len(st.session_state.messages) == 0:
     st.markdown("""
-        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
-            <h1 style="font-size: clamp(1.3rem, 4vw, 1.9rem); font-weight: 500; letter-spacing: -0.02em; color: #1f1f1f; margin-bottom: 0.4rem; line-height: 1.3;">
-                Hello, How can I help you?
+        <div style="text-align: center; margin-top: 4vh; margin-bottom: 1.5rem;">
+            <div style="display: inline-flex; align-items: center; gap: 8px; background: #e8f0fe; color: #1a73e8; padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.8rem;">
+                🇮🇳 Medical AI for Indian Physicians & Students
+            </div>
+            <h1 style="font-size: clamp(1.3rem, 3.5vw, 1.85rem); font-weight: 600; letter-spacing: -0.02em; color: #1f1f1f; margin-bottom: 0.4rem; line-height: 1.3;">
+                Clinical Intelligence & 19-Subject Medical System
             </h1>
-            <p style="font-size: clamp(0.82rem, 2.5vw, 0.95rem); color: #5f6368; max-width: 500px; margin: 0 auto 0.6rem auto;">
-                Ask in-depth medical questions
+            <p style="font-size: clamp(0.82rem, 2.2vw, 0.92rem); color: #5f6368; max-width: 580px; margin: 0 auto 0.5rem auto;">
+                Grounded in ICMR guidelines, Indian drug dosing & brand formulations, and NMC 19-Subject MBBS / NEET-PG high-yield competencies
             </p>
-            <p style="font-size: 0.72rem; color: #9aa0a6; margin: 0 auto; letter-spacing: 0.02em;">
+            <p style="font-size: 0.72rem; color: #9aa0a6; margin: 0 auto 1.2rem auto; letter-spacing: 0.02em;">
                 Created by <strong style="color: #5f6368;">Aryan Jadhav</strong>
             </p>
         </div>
     """, unsafe_allow_html=True)
+
+    # Interactive high-yield clinical & academic quick chips
+    st.caption("⚡ **High-Yield Clinical & Academic Scenarios (Click to Run):**")
+    chip_col1, chip_col2 = st.columns(2)
+    with chip_col1:
+        if st.button("🚨 Snakebite Envenomation (ASV Protocol)", use_container_width=True):
+            st.session_state.pending_query = "National protocol for snakebite envenomation in India: indications for Polyvalent Anti-Snake Venom (ASV), initial dosing, ASV reaction management, and 20WBCT monitoring."
+            st.rerun()
+        if st.button("🦟 Dengue with Thrombocytopenia (NVBDCP)", use_container_width=True):
+            st.session_state.pending_query = "NVBDCP guidelines for Dengue Fever with thrombocytopenia: warning signs, fluid resuscitation protocol (crystalloids vs colloids), and platelet transfusion indications."
+            st.rerun()
+        if st.button("🫁 Pulmonary Tuberculosis (NTEP FDC Regimen)", use_container_width=True):
+            st.session_state.pending_query = "NTEP protocol for drug-sensitive pulmonary tuberculosis: weight-band based 4-drug FDC dosing (HRZE), continuation phase, and monitoring schedule."
+            st.rerun()
+    with chip_col2:
+        if st.button("💊 Type 2 Diabetes Step-wise ICMR Algorithm", use_container_width=True):
+            st.session_state.pending_query = "ICMR Guidelines for Management of Type 2 Diabetes: first-line metformin therapy, second-line additions (SGLT2i, DPP4i), glycemic targets, and Indian drug formulations."
+            st.rerun()
+        if st.button("🎯 NEET-PG: Nephrotic vs Nephritic Syndrome", use_container_width=True):
+            st.session_state.pending_query = "High-yield comparison table for Nephrotic vs Nephritic syndrome: clinical features, urinalysis findings, complement levels (C3/C4), kidney biopsy electron microscopy, and exam golden points."
+            st.rerun()
+        if st.button("👶 Acute Diarrhoea & Dehydration (IAP/WHO)", use_container_width=True):
+            st.session_state.pending_query = "Management of acute watery diarrhoea with Some Dehydration (Plan B) and Severe Dehydration (Plan C) in children under 5 according to IAP and WHO protocols with Zinc dosing."
+            st.rerun()
 
 # Display chat history
 for msg_idx, message in enumerate(st.session_state.messages):
@@ -1053,40 +1133,60 @@ if user_query:
                 history_blocks.append(f"{role_label}: {snippet}...")
             history_str = "\n".join(history_blocks) if history_blocks else "None"
 
-            # 6. High-yield medical prompt with strict Hinglish and symptom guidelines
+            # 6. Tailor clinical vs student persona prompt
+            is_physician = "Physician" in st.session_state.get("medical_persona_mode", "Physician")
+            active_scope_name = st.session_state.get("subject_scope_selector", "All 19 MBBS Subjects")
             selected_names_formatted = ", ".join([get_friendly_book_name(b) for b in selected_filenames])
-            system_prompt = f"""You are an authoritative Medical Reference Assistant for medical students and clinicians.
-Provide structured, comprehensive, and clinically accurate answers based on the provided textbook CONTEXT.
-Active Scope: {selected_names_formatted}
 
-CORE GUIDELINES:
-1. CLINICAL DEPTH & DIFFERENTIAL DIAGNOSIS:
-   - When asked about a specific disease/condition: Explain definitions, classifications, anatomy/physiology, clinical features, diagnostic workup, and treatment/management (with exact drug names/dosages if provided).
-   - When asked about SYMPTOMS or CLINICAL PRESENTATIONS (e.g. "pain and swelling in middle ear", "fever with chills and cough"):
-     * Do NOT refuse to answer!
-     * Immediately identify the most likely conditions and differential diagnoses based on textbook excerpts (e.g., Acute Otitis Media, Otitis Externa, Acute Mastoiditis, Serous Otitis Media).
-     * Explain the anatomical and pathophysiological basis from the textbooks.
-     * Highlight key examination signs (e.g., otoscopy appearance of tympanic membrane, tragal tenderness).
-     * Outline the first-line medical management and drug treatment according to textbook protocols.
-   - Format with bold headers, structured tables, and clear bullet points.
+            if is_physician:
+                persona_guidelines = f"""ROLE: AUTHORITATIVE CLINICAL DECISION SUPPORT AI FOR INDIAN PHYSICIANS & RESIDENTS.
+Grounded in authentic Indian clinical guidelines (ICMR Standard Treatment Workflows, NTEP, NVBDCP, National Snakebite/Rabies Protocols, MoHFW guidelines, WHO protocols, and standard reference medical textbooks).
+Active Knowledge Focus: {active_scope_name}
+Indexed References: {selected_names_formatted}
 
-2. CITATIONS: Cite the textbook and page number for each major finding or section: [Book Title, p. X]. Include a '### References / Sources Consulted' section at the end.
+RESPONSE STRUCTURE FOR CLINICIANS:
+1. 🚨 TRIAGE & RED FLAGS: Highlight emergency signs, hemodynamic instability, acute complications, and hospital admission / ICU criteria immediately at the top.
+2. 🩺 CLINICAL PRESENTATION & DIFFERENTIAL DIAGNOSIS: Ranked by prevalence in Indian OPD/IPD practice (tropical infections, endemic conditions, lifestyle comorbidities).
+3. 🧪 ESSENTIAL INVESTIGATIONS: Practical, cost-effective workup (CBC, LFT, KFT, ECG, USG, specific serology/cultures) considering typical Indian hospital settings.
+4. 💊 TREATMENT & PHARMACOTHERAPY (INDIAN CLINICAL GUIDELINES):
+   - Provide exact generic drug names with standard adult & paediatric dosages (e.g. mg/kg or fixed dose).
+   - Mention standard commonly prescribed Indian brand formulations and strengths where helpful (e.g. Tab. Augmentin 625mg BD, Cap. Pantocid 40mg OD, Tab. Azithral 500mg OD, IV Ceftriaxone 1g BD, Tab. PCM 650mg SOS).
+   - Route of administration, frequency, duration of therapy, and supportive/non-pharmacological advice.
+5. ⚖️ CLINICAL MONITORING & MEDICO-LEGAL PRECAUTIONS: Follow-up intervals, monitoring parameters, and mandatory statutory reporting where applicable (MLC indications, dog bites, snakebite ASV consent, Nikshay for TB)."""
+            else:
+                persona_guidelines = f"""ROLE: ACADEMIC MEDICAL PROFESSOR & NEET-PG / NExT / MBBS EXAM MENTOR.
+Scope: Comprehensive mastery across all 19 MBBS subjects under the National Medical Commission (NMC) curriculum.
+Active Knowledge Focus: {active_scope_name}
+Indexed References: {selected_names_formatted}
 
+RESPONSE STRUCTURE FOR STUDENTS:
+1. 📖 DEFINITION & ETIOPATHOGENESIS: Clear classification, pathophysiology, genetics/molecular mechanisms, and risk factors.
+2. 🔬 PATHOLOGY & DIAGNOSTIC CRITERIA: Gross pathology, microscopic/histopathology findings, special stains, hallmark imaging/radiology signs (e.g., 'Target sign', 'Cobblestone appearance', 'Steeple sign', 'Apple core lesion').
+3. 📋 CLINICAL MANIFESTATIONS & CRITERIA: Classical presentations, scoring systems & staging (e.g. Duke's, Jones, Centor, Child-Pugh, TNM staging).
+4. 💊 MANAGEMENT & GOLD STANDARD REGIMENS: First-line medical and surgical interventions according to standard reference textbooks (Robbins, Harrison, KD Tripathi, Bailey & Love, Park PSM, Dutta).
+5. 🎯 HIGH-YIELD EXAM NUGGETS & MNEMONICS:
+   - 'Golden Lines' & previous year NEET-PG / INI-CET / USMLE exam catchphrases.
+   - Memory mnemonics.
+   - Quick differential/comparison table where appropriate."""
+
+            system_prompt = f"""{persona_guidelines}
+
+CORE OPERATIONAL RULES:
+1. CLINICAL DEPTH: Provide structured, comprehensive, and clinically accurate answers based on the provided CONTEXT and authentic medical science.
+2. CITATIONS: Cite the textbook or guideline and page number for each major finding or section: [Source, p. X]. Include a '### References & Guidelines Consulted' section at the end.
 3. LANGUAGE & SCRIPT RULES:
-   - ENGLISH: If the student asks in English, reply in professional medical English.
-   - HINGLISH: If the student asks in Hinglish (Hindi written using the English alphabet / Roman script, chatting style, e.g. "otitis media kya hota hai", "treatment kya hai", "ear me pain ho raha hai"):
-     * You MUST reply in conversational, natural Hinglish using the ENGLISH/LATIN ALPHABET ONLY (e.g., "Otitis media middle ear ka infection ya inflammation hota hai...").
+   - ENGLISH: If asked in English, reply in professional medical English.
+   - HINGLISH: If asked in Hinglish (Hindi written using the English alphabet / Roman script, e.g. "treatment kya hai", "otitis media kya hota hai"):
+     * Reply in conversational, natural Hinglish using the ENGLISH/LATIN ALPHABET ONLY.
      * CRITICAL: NEVER USE DEVANAGARI / HINDI SCRIPT (हिंदी लिपि) for Hinglish questions! Write completely in chatting-style English letters.
-     * Keep all section headings in English (e.g., "### Overview & Meaning", "### Clinical Features", "### Differential Diagnosis", "### Treatment & Management", "### References / Sources Consulted").
-   - HINDI / MARATHI: Only if the student explicitly wrote their prompt in Devanagari script, reply in Devanagari script.
-   - MEDICAL TERMINOLOGY: Regardless of language, ALWAYS keep anatomical names, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
-
+     * Keep all section headings and medical terms in English (e.g., "### Triage & Red Flags", "### Treatment & Management", "### References Consulted").
+   - HINDI / MARATHI: Only if the question is explicitly written in Devanagari script, reply in Devanagari script.
+   - MEDICAL TERMINOLOGY: Always keep anatomical names, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
 4. KNOWLEDGE BREADTH:
    - Always provide a full, detailed clinical answer.
    - Use the textbook excerpts as your PRIMARY source. Cite them with page numbers wherever possible.
-   - If a specific detail is not in the provided excerpts but is standard medical knowledge, you MUST still answer it using your general medical knowledge — clearly note with "[General Medical Knowledge]" for any part not directly from the excerpts.
-   - NEVER refuse to answer or say 'not covered in excerpts' for well-established medical topics like pathophysiology, etiology, treatment, etc.
-   - Only skip a topic if it is genuinely outside the scope of medicine (e.g. cooking, politics)."""
+   - If a specific detail is not in the provided excerpts but is standard medical knowledge or Indian guidelines (ICMR, NTEP, NVBDCP), answer using authoritative medical knowledge — note with "[Clinical Guideline / Medical Knowledge]" for any part not directly from the excerpts.
+   - NEVER refuse to answer or say 'not covered in excerpts' for well-established medical topics. Only skip if outside medicine."""
 
         # Stream the generated response token by token with direct Groq chat streaming (OUTSIDE of spinner)
         def generate_stream():
@@ -1107,8 +1207,8 @@ CORE GUIDELINES:
                 })
 
             user_content = (
-                f"TEXTBOOK CONTEXT EXCERPTS:\n{context_str if context_str else 'No direct textbook excerpt found.'}\n\n"
-                f"STUDENT QUESTION:\n{user_query}\n\n"
+                f"TEXTBOOK & GUIDELINE CONTEXT EXCERPTS:\n{context_str if context_str else 'No direct textbook excerpt found.'}\n\n"
+                f"MEDICAL QUERY:\n{user_query}\n\n"
                 f"Provide a comprehensive, structured clinical response following all guidelines:"
             )
             messages.append({"role": "user", "content": user_content})
@@ -1141,8 +1241,29 @@ CORE GUIDELINES:
                     print(f"Notice: Model {model_cand} failed: {e}. Trying next candidate...", flush=True)
                     continue
 
+            # Fallback to Google Gemini free tier if Groq is unavailable
+            if not stream and GEMINI_API_KEY:
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=GEMINI_API_KEY)
+                    gem_model = genai.GenerativeModel(
+                        model_name="gemini-2.0-flash",
+                        system_instruction=system_prompt
+                    )
+                    full_prompt = f"{history_str}\n\n{user_content}" if history_str and history_str != "None" else user_content
+                    gem_res = gem_model.generate_content(full_prompt, stream=True)
+                    has_gem_yielded = False
+                    for chunk in gem_res:
+                        if chunk.text:
+                            has_gem_yielded = True
+                            yield chunk.text
+                    if has_gem_yielded:
+                        return
+                except Exception as gem_e:
+                    print(f"Gemini fallback error: {gem_e}", flush=True)
+
             if not stream:
-                yield f"⚠️ **Groq API Error**: Could not connect to any model ({last_err}). Please check your API key in Streamlit secrets."
+                yield f"⚠️ **Service Notice**: Could not connect to inference backend ({last_err}). Please verify your API key in Streamlit secrets or try again in a few moments."
                 return
 
             has_yielded = False
@@ -1156,7 +1277,7 @@ CORE GUIDELINES:
             except Exception as stream_e:
                 err_msg = str(stream_e)
                 if "413" in err_msg or "rate_limit" in err_msg.lower():
-                    yield "\n\n⚠️ **Rate Limit Notice**: Groq API token limit reached. Please wait a few seconds and retry."
+                    yield "\n\n⚠️ **Rate Limit Notice**: API token limit reached. Please wait a few seconds and retry."
                 else:
                     yield f"\n\n⚠️ **Streaming interrupted**: {err_msg}"
 
@@ -1171,7 +1292,7 @@ CORE GUIDELINES:
         latency = time.time() - query_start_time
 
         # Log interaction to SQLite analytics database
-        scope_summary = "All 11 Textbooks" if select_all else f"{len(selected_filenames)} selected: {selected_names_formatted[:60]}"
+        scope_summary = f"[{cur_persona}] {active_scope_name}"
         analytics.log_interaction(
             session_id=st.session_state.session_id,
             ip_address=client_ip,
