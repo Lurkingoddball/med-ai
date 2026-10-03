@@ -9,15 +9,13 @@ app_file: app.py
 pinned: false
 ---
 
-# 🩺 Indian Medical AI — 19-Subject Clinical & Academic Intelligence
+# 🩺 Medical AI Assistant — Evidence-Based Clinical & Academic Intelligence
 
-An AI-powered clinical decision support and academic mentor designed specifically for **Indian medical students (MBBS / NEET-PG / NExT)** and **practicing physicians**.
+An authoritative, AI-powered medical assistant designed for **medical students, clinicians, and healthcare professionals**, strictly grounded in authentic medical textbook and reference data stored in the background vector database.
 
 ## 🚀 Key Features
-- **Dual Persona Engine**:
-  - **👨‍⚕️ Indian Physician / Clinician Mode**: Emergency triage, red flags, ICMR Standard Treatment Workflows (STWs), exact drug dosages with common Indian brand formulations (e.g. Augmentin, Pantoprazole, Azithral), and statutory reporting (NTEP, NVBDCP, Snakebite/Rabies protocols).
-  - **🎓 Medical Student / NEET-PG Mode**: Complete 19 MBBS subjects mapped to the National Medical Commission (NMC) curriculum, etiopathogenesis, gross/micro pathology, hallmark radiological signs, mnemonics, and high-yield comparison tables.
-- **19 MBBS Subjects Covered**: Pre-clinical (Anatomy, Physiology, Biochem), Para-clinical (Pathology, Pharma, Micro, FMT), Minor Clinical (PSM, Ophthal, ENT), and Major Clinical (Medicine, Surgery, OB-GYN, Paediatrics, Orthopaedics, Derma, Psych, Anaesthesia, Radiology).
-- **Authentic Open Source & Clinical Reference Grounding**: Grounded in ICMR STWs, WHO clinical protocols, MoHFW guidelines, and standard reference textbooks with page-level PDF preview.
+- **Integrated Medical Intelligence**: Seamlessly blends deep academic pathophysiology with real-world clinical decision support, differential diagnoses, investigations, and evidence-based treatment regimens.
+- **Strict Evidence Grounding**: Primary answers retrieved directly from authentic background vector data (ChromaDB) with citations and page-level PDF inspection.
+- **Minimalist & Clean UI**: Distraction-free, modern interface with sidebar textbook selection and private session history.
+- **Multilingual Clinical Processing**: Understands English, natural conversational Hinglish (Latin alphabet), Hindi, and Marathi with standard medical terminology preserved.
 - **Zero-Cost High-Speed Architecture**: Powered by Groq LLaMA 3.3 70B & DeepSeek reasoning with automatic Google Gemini free fallback.
-- **Multilingual Clinical Processing**: Understands English, natural conversational Hinglish (Latin alphabet), Hindi, and Marathi with medical terms preserved in standard terminology.

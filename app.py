@@ -646,60 +646,36 @@ with st.sidebar:
         st.session_state.current_view = "chat"
         st.rerun()
 
-    # 2. Medical Persona Switcher
-    st.markdown('<div class="gemini-section-header">Target Persona</div>', unsafe_allow_html=True)
-    persona_mode = st.radio(
-        "Choose Mode:",
-        [
-            "👨‍⚕️ Physician / Clinical Practice", 
-            "🎓 Medical Student / NEET-PG"
-        ],
-        key="medical_persona_mode",
-        help="Physician Mode: Indian treatment protocols, ICMR STWs, drug dosages & brands, emergency triage.\nStudent Mode: 19 MBBS subjects, high-yield exam nuggets, pathology, classifications, mnemonics."
-    )
+    # 2. Notebooks Section (Medical Textbooks & Stored Data)
+    st.markdown('<div class="gemini-section-header">Notebooks</div>', unsafe_allow_html=True)
 
-    # 3. Medical Scope & Subjects (NMC 19-Subject Curriculum)
-    st.markdown('<div class="gemini-section-header">Subject & Knowledge Scope</div>', unsafe_allow_html=True)
-    scope_option = st.selectbox(
-        "Medical Scope:",
-        [
-            "✨ All 19 MBBS Subjects (Comprehensive)",
-            "🩺 Clinical Medicine & Tropical Diseases",
-            "🔪 Surgery, Ortho & Anaesthesia",
-            "🤰 OBGYN & Paediatrics",
-            "🔬 Pathology, Micro & Pharmacology",
-            "🏛️ Anatomy, Physiology & Biochem",
-            "🌍 PSM, Ophthalmology & ENT",
-            "📚 Custom Textbook Filter"
-        ],
-        key="subject_scope_selector",
-        help="Select a clinical category or customize active indexed textbooks."
+    select_all = st.checkbox(
+        f"Select All Textbooks ({len(loaded_books)} books)", 
+        value=True,
+        help="Search across all medical subjects simultaneously with balanced source diversity."
     )
-
-    if scope_option == "📚 Custom Textbook Filter":
-        select_all = st.checkbox(
-            f"Select All Textbooks ({len(loaded_books)} books)", 
-            value=False,
-            help="Search across all medical subjects simultaneously."
-        )
-        if select_all:
-            selected_filenames = list(loaded_books)
-            st.caption("✨ *All indexed textbooks active*")
-        else:
-            selected_display_names = st.multiselect(
-                "Active Textbook(s):",
-                options=list(book_options.keys()),
-                default=list(book_options.keys())[:3] if len(book_options) >= 3 else list(book_options.keys()),
-                help="Choose any 1 or more textbooks."
-            )
-            selected_filenames = [book_options[name] for name in selected_display_names]
-            if not selected_filenames:
-                selected_filenames = list(loaded_books)
-                st.info("Defaulted to all textbooks.")
-    else:
-        select_all = True
+    
+    if select_all:
         selected_filenames = list(loaded_books)
-        st.caption(f"✨ *Active Knowledge Base: {scope_option}*")
+        st.caption(f"✨ *All {len(loaded_books)} medical notebooks active*")
+    else:
+        selected_display_names = st.multiselect(
+            "Active Notebook(s):",
+            options=list(book_options.keys()),
+            default=list(book_options.keys())[:3] if len(book_options) >= 3 else list(book_options.keys()),
+            help="Choose any 1 or more textbooks."
+        )
+        selected_filenames = [book_options[name] for name in selected_display_names]
+        if not selected_filenames:
+            selected_filenames = list(loaded_books)
+            st.error("⚠️ Please select at least one textbook!")
+
+    # Display clean notebook list items
+    active_subjects = [get_friendly_book_name(b).split(" - ")[0].strip() for b in selected_filenames[:4]]
+    for subj in active_subjects:
+        st.markdown(f'<div class="gemini-notebook-item">📓 {subj}</div>', unsafe_allow_html=True)
+    if len(selected_filenames) > 4:
+        st.caption(f"+ {len(selected_filenames) - 4} more notebooks active")
 
     # 5. Chat History Section — stored per session in session_state
     # Initialize saved chats store
@@ -935,9 +911,11 @@ if st.session_state.current_view == "creator":
 # ==========================================
 
 # Active Scope Caption
-cur_persona = st.session_state.get("medical_persona_mode", "👨‍⚕️ Physician / Clinical Practice")
-cur_scope = st.session_state.get("subject_scope_selector", "✨ All 19 MBBS Subjects")
-st.caption(f"🇮🇳 **Persona:** `{cur_persona}` | 📚 **Scope:** `{cur_scope}`")
+if select_all:
+    st.caption("✨ **Active Scope:** All Medical Textbooks (Balanced Multi-Book Search)")
+else:
+    selected_names_str = ", ".join([get_friendly_book_name(f).split(" - ")[0] for f in selected_filenames])
+    st.caption(f"🎯 **Active Scope:** {len(selected_filenames)} Selected Book(s): *{selected_names_str}*")
 
 # Chat Interface State Management
 if "messages" not in st.session_state:
@@ -946,45 +924,18 @@ if "messages" not in st.session_state:
 # Hero State: When no messages have been sent yet
 if len(st.session_state.messages) == 0:
     st.markdown("""
-        <div style="text-align: center; margin-top: 4vh; margin-bottom: 1.5rem;">
-            <div style="display: inline-flex; align-items: center; gap: 8px; background: #e8f0fe; color: #1a73e8; padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.8rem;">
-                🇮🇳 Medical AI for Indian Physicians & Students
-            </div>
-            <h1 style="font-size: clamp(1.3rem, 3.5vw, 1.85rem); font-weight: 600; letter-spacing: -0.02em; color: #1f1f1f; margin-bottom: 0.4rem; line-height: 1.3;">
-                Clinical Intelligence & 19-Subject Medical System
+        <div style="text-align: center; margin-top: 8vh; margin-bottom: 2rem;">
+            <h1 style="font-size: clamp(1.3rem, 4vw, 1.9rem); font-weight: 500; letter-spacing: -0.02em; color: #1f1f1f; margin-bottom: 0.4rem; line-height: 1.3;">
+                Hello, How can I help you?
             </h1>
-            <p style="font-size: clamp(0.82rem, 2.2vw, 0.92rem); color: #5f6368; max-width: 580px; margin: 0 auto 0.5rem auto;">
-                Grounded in ICMR guidelines, Indian drug dosing & brand formulations, and NMC 19-Subject MBBS / NEET-PG high-yield competencies
+            <p style="font-size: clamp(0.82rem, 2.5vw, 0.95rem); color: #5f6368; max-width: 500px; margin: 0 auto 0.6rem auto;">
+                Ask in-depth medical questions
             </p>
-            <p style="font-size: 0.72rem; color: #9aa0a6; margin: 0 auto 1.2rem auto; letter-spacing: 0.02em;">
+            <p style="font-size: 0.72rem; color: #9aa0a6; margin: 0 auto; letter-spacing: 0.02em;">
                 Created by <strong style="color: #5f6368;">Aryan Jadhav</strong>
             </p>
         </div>
     """, unsafe_allow_html=True)
-
-    # Interactive high-yield clinical & academic quick chips
-    st.caption("⚡ **High-Yield Clinical & Academic Scenarios (Click to Run):**")
-    chip_col1, chip_col2 = st.columns(2)
-    with chip_col1:
-        if st.button("🚨 Snakebite Envenomation (ASV Protocol)", use_container_width=True):
-            st.session_state.pending_query = "National protocol for snakebite envenomation in India: indications for Polyvalent Anti-Snake Venom (ASV), initial dosing, ASV reaction management, and 20WBCT monitoring."
-            st.rerun()
-        if st.button("🦟 Dengue with Thrombocytopenia (NVBDCP)", use_container_width=True):
-            st.session_state.pending_query = "NVBDCP guidelines for Dengue Fever with thrombocytopenia: warning signs, fluid resuscitation protocol (crystalloids vs colloids), and platelet transfusion indications."
-            st.rerun()
-        if st.button("🫁 Pulmonary Tuberculosis (NTEP FDC Regimen)", use_container_width=True):
-            st.session_state.pending_query = "NTEP protocol for drug-sensitive pulmonary tuberculosis: weight-band based 4-drug FDC dosing (HRZE), continuation phase, and monitoring schedule."
-            st.rerun()
-    with chip_col2:
-        if st.button("💊 Type 2 Diabetes Step-wise ICMR Algorithm", use_container_width=True):
-            st.session_state.pending_query = "ICMR Guidelines for Management of Type 2 Diabetes: first-line metformin therapy, second-line additions (SGLT2i, DPP4i), glycemic targets, and Indian drug formulations."
-            st.rerun()
-        if st.button("🎯 NEET-PG: Nephrotic vs Nephritic Syndrome", use_container_width=True):
-            st.session_state.pending_query = "High-yield comparison table for Nephrotic vs Nephritic syndrome: clinical features, urinalysis findings, complement levels (C3/C4), kidney biopsy electron microscopy, and exam golden points."
-            st.rerun()
-        if st.button("👶 Acute Diarrhoea & Dehydration (IAP/WHO)", use_container_width=True):
-            st.session_state.pending_query = "Management of acute watery diarrhoea with Some Dehydration (Plan B) and Severe Dehydration (Plan C) in children under 5 according to IAP and WHO protocols with Zinc dosing."
-            st.rerun()
 
 # Display chat history
 for msg_idx, message in enumerate(st.session_state.messages):
@@ -1133,60 +1084,47 @@ if user_query:
                 history_blocks.append(f"{role_label}: {snippet}...")
             history_str = "\n".join(history_blocks) if history_blocks else "None"
 
-            # 6. Tailor clinical vs student persona prompt
-            is_physician = "Physician" in st.session_state.get("medical_persona_mode", "Physician")
-            active_scope_name = st.session_state.get("subject_scope_selector", "All 19 MBBS Subjects")
+            # 6. Integrated authoritative medical AI prompt grounded in background vector data
             selected_names_formatted = ", ".join([get_friendly_book_name(b) for b in selected_filenames])
 
-            if is_physician:
-                persona_guidelines = f"""ROLE: AUTHORITATIVE CLINICAL DECISION SUPPORT AI FOR INDIAN PHYSICIANS & RESIDENTS.
-Grounded in authentic Indian clinical guidelines (ICMR Standard Treatment Workflows, NTEP, NVBDCP, National Snakebite/Rabies Protocols, MoHFW guidelines, WHO protocols, and standard reference medical textbooks).
-Active Knowledge Focus: {active_scope_name}
-Indexed References: {selected_names_formatted}
+            system_prompt = f"""You are an authoritative, evidence-based Medical AI Assistant for medical students, clinicians, and healthcare professionals.
+Your answers MUST be strictly evidence-based, clinically rigorous, and grounded in the authentic medical reference data stored in the background vector database and standard medical science.
+Active Reference Scope: {selected_names_formatted}
 
-RESPONSE STRUCTURE FOR CLINICIANS:
-1. 🚨 TRIAGE & RED FLAGS: Highlight emergency signs, hemodynamic instability, acute complications, and hospital admission / ICU criteria immediately at the top.
-2. 🩺 CLINICAL PRESENTATION & DIFFERENTIAL DIAGNOSIS: Ranked by prevalence in Indian OPD/IPD practice (tropical infections, endemic conditions, lifestyle comorbidities).
-3. 🧪 ESSENTIAL INVESTIGATIONS: Practical, cost-effective workup (CBC, LFT, KFT, ECG, USG, specific serology/cultures) considering typical Indian hospital settings.
-4. 💊 TREATMENT & PHARMACOTHERAPY (INDIAN CLINICAL GUIDELINES):
-   - Provide exact generic drug names with standard adult & paediatric dosages (e.g. mg/kg or fixed dose).
-   - Mention standard commonly prescribed Indian brand formulations and strengths where helpful (e.g. Tab. Augmentin 625mg BD, Cap. Pantocid 40mg OD, Tab. Azithral 500mg OD, IV Ceftriaxone 1g BD, Tab. PCM 650mg SOS).
-   - Route of administration, frequency, duration of therapy, and supportive/non-pharmacological advice.
-5. ⚖️ CLINICAL MONITORING & MEDICO-LEGAL PRECAUTIONS: Follow-up intervals, monitoring parameters, and mandatory statutory reporting where applicable (MLC indications, dog bites, snakebite ASV consent, Nikshay for TB)."""
-            else:
-                persona_guidelines = f"""ROLE: ACADEMIC MEDICAL PROFESSOR & NEET-PG / NExT / MBBS EXAM MENTOR.
-Scope: Comprehensive mastery across all 19 MBBS subjects under the National Medical Commission (NMC) curriculum.
-Active Knowledge Focus: {active_scope_name}
-Indexed References: {selected_names_formatted}
+CORE GUIDELINES:
+1. STRICT AUTHENTIC DATA GROUNDING & EVIDENCE:
+   - Your answers must be strictly evidence-based and grounded in the retrieved textbook excerpts and verified medical science.
+   - For every major finding, classification, diagnostic criterion, and treatment protocol, cite the exact source and page: [Book/Document Title, p. X].
+   - If a specific clinical detail is standard authoritative medical consensus but not fully contained in the retrieved excerpt, you must still provide the medically accurate information, clearly distinguishing it with [Standard Medical Knowledge / Clinical Guideline]. Never fabricate, guess, or provide unverified speculation.
 
-RESPONSE STRUCTURE FOR STUDENTS:
-1. 📖 DEFINITION & ETIOPATHOGENESIS: Clear classification, pathophysiology, genetics/molecular mechanisms, and risk factors.
-2. 🔬 PATHOLOGY & DIAGNOSTIC CRITERIA: Gross pathology, microscopic/histopathology findings, special stains, hallmark imaging/radiology signs (e.g., 'Target sign', 'Cobblestone appearance', 'Steeple sign', 'Apple core lesion').
-3. 📋 CLINICAL MANIFESTATIONS & CRITERIA: Classical presentations, scoring systems & staging (e.g. Duke's, Jones, Centor, Child-Pugh, TNM staging).
-4. 💊 MANAGEMENT & GOLD STANDARD REGIMENS: First-line medical and surgical interventions according to standard reference textbooks (Robbins, Harrison, KD Tripathi, Bailey & Love, Park PSM, Dutta).
-5. 🎯 HIGH-YIELD EXAM NUGGETS & MNEMONICS:
-   - 'Golden Lines' & previous year NEET-PG / INI-CET / USMLE exam catchphrases.
-   - Memory mnemonics.
-   - Quick differential/comparison table where appropriate."""
+2. INTEGRATED CLINICAL & ACADEMIC STRUCTURE:
+   - Provide a complete, integrated answer that serves both deep academic understanding and real-world clinical decision-making:
+     * **Definition & Pathophysiology**: Core mechanisms, etiology, and anatomical/physiological basis.
+     * **Clinical Features & Presentation**: Key symptoms, physical examination signs, and hallmark diagnostic clues.
+     * **Differential Diagnosis & Diagnostic Criteria**: Top conditions to consider with differentiating features and formal diagnostic criteria/scoring systems.
+     * **Investigations & Workup**: High-yield laboratory tests, imaging findings, and gold-standard confirmation.
+     * **Evidence-Based Management & Treatment**: First-line pharmacotherapy with exact standard dosages, duration of therapy, route, supportive care, and surgical/interventional indications where relevant.
+     * **🚨 Red Flags & Emergency Triage**: Critical danger signs and admission/emergency referral criteria.
+   - Format with clean markdown headers, bullet points, and comparison tables where appropriate.
 
-            system_prompt = f"""{persona_guidelines}
+3. SYMPTOM & PRESENTATION QUERIES:
+   - When asked about symptoms or clinical presentations (e.g. "pain and swelling in middle ear", "fever with chills and cough", "acute right lower quadrant pain"):
+     * Do NOT refuse to answer!
+     * Immediately identify the most likely conditions and differential diagnoses based on textbook excerpts.
+     * Explain the anatomical and pathophysiological basis from the textbooks.
+     * Highlight key physical examination signs (e.g., otoscopy appearance, tenderness, peritoneal signs).
+     * Outline the first-line medical management and drug treatment according to textbook protocols.
 
-CORE OPERATIONAL RULES:
-1. CLINICAL DEPTH: Provide structured, comprehensive, and clinically accurate answers based on the provided CONTEXT and authentic medical science.
-2. CITATIONS: Cite the textbook or guideline and page number for each major finding or section: [Source, p. X]. Include a '### References & Guidelines Consulted' section at the end.
-3. LANGUAGE & SCRIPT RULES:
+4. LANGUAGE & SCRIPT RULES:
    - ENGLISH: If asked in English, reply in professional medical English.
-   - HINGLISH: If asked in Hinglish (Hindi written using the English alphabet / Roman script, e.g. "treatment kya hai", "otitis media kya hota hai"):
-     * Reply in conversational, natural Hinglish using the ENGLISH/LATIN ALPHABET ONLY.
+   - HINGLISH: If asked in conversational Hinglish (Hindi written using English/Latin alphabet, e.g. "otitis media kya hota hai", "treatment kya hai"):
+     * Reply in natural, conversational Hinglish using the ENGLISH/LATIN ALPHABET ONLY.
      * CRITICAL: NEVER USE DEVANAGARI / HINDI SCRIPT (हिंदी लिपि) for Hinglish questions! Write completely in chatting-style English letters.
-     * Keep all section headings and medical terms in English (e.g., "### Triage & Red Flags", "### Treatment & Management", "### References Consulted").
-   - HINDI / MARATHI: Only if the question is explicitly written in Devanagari script, reply in Devanagari script.
-   - MEDICAL TERMINOLOGY: Always keep anatomical names, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
-4. KNOWLEDGE BREADTH:
-   - Always provide a full, detailed clinical answer.
-   - Use the textbook excerpts as your PRIMARY source. Cite them with page numbers wherever possible.
-   - If a specific detail is not in the provided excerpts but is standard medical knowledge or Indian guidelines (ICMR, NTEP, NVBDCP), answer using authoritative medical knowledge — note with "[Clinical Guideline / Medical Knowledge]" for any part not directly from the excerpts.
-   - NEVER refuse to answer or say 'not covered in excerpts' for well-established medical topics. Only skip if outside medicine."""
+     * Keep all section headings, anatomical terms, disease names, symptoms, investigation terms, and drug names in standard English (e.g., Tympanic membrane, Otitis Media, Amoxicillin, Otoscopy).
+   - HINDI / MARATHI: Only if the student explicitly wrote their prompt in Devanagari script, reply in Devanagari script.
+
+5. REFERENCES SECTION:
+   - Conclude every response with a structured '### References Consulted' section citing the textbooks and page numbers."""
 
         # Stream the generated response token by token with direct Groq chat streaming (OUTSIDE of spinner)
         def generate_stream():
@@ -1295,7 +1233,7 @@ CORE OPERATIONAL RULES:
         latency = time.time() - query_start_time
 
         # Log interaction to SQLite analytics database
-        scope_summary = f"[{cur_persona}] {active_scope_name}"
+        scope_summary = "All Textbooks" if select_all else f"{len(selected_filenames)} selected: {selected_names_formatted[:60]}"
         analytics.log_interaction(
             session_id=st.session_state.session_id,
             ip_address=client_ip,
